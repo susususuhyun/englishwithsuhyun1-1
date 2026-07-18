@@ -34,6 +34,11 @@ jobs:
           npm install --no-audit --no-fund
           npm run build
 
+      - name: Move built docs to repository root
+        run: |
+          rm -rf ./docs || true
+          cp -r edu-platform/docs ./docs
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v1
         with:
