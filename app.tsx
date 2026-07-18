@@ -1,8 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, setDoc } from 'firebase/firestore';
-import { BookOpen, CheckSquare, GraduationCap, Users, Settings, LogOut, Plus, Edit2, Trash2, Search, BookA, ExternalLink, Link as LinkIcon } from 'lucide-react';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, User } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, setDoc, Firestore } from 'firebase/firestore';
+import { BookOpen, CheckSquare, GraduationCap, Users, Settings, LogOut, Plus, Trash2, BookA, ExternalLink, Link as LinkIcon } from 'lucide-react';
+
+declare const __firebase_config: string | undefined;
+declare const __app_id: string | undefined;
+declare const __initial_auth_token: string | undefined;
 
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const app = initializeApp(firebaseConfig);
@@ -10,19 +14,47 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'eng-edu-app';
 
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [localUserId, setLocalUserId] = useState(localStorage.getItem('edu_user_id'));
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [showLogin, setShowLogin] = useState(true);
-  
-  const [usersList, setUsersList] = useState([]);
-  const [homeworkList, setHomeworkList] = useState([]);
-  const [settings, setSettings] = useState({});
-  const [gradesList, setGradesList] = useState([]);
+interface UserProfile {
+  id: string;
+  name: string;
+  role: 'student' | 'admin';
+  pin?: string;
+  createdAt: string;
+}
 
-  const [activeTab, setActiveTab] = useState('homework');
+interface Homework {
+  id: string;
+  title: string;
+  content: string;
+  dueDate: string;
+  createdAt: string;
+}
+
+interface Grade {
+  id: string;
+  studentId: string;
+  examName: string;
+  score: string | number;
+  date: string;
+}
+
+interface AppSettings {
+  vocabLink?: string;
+}
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [localUserId, setLocalUserId] = useState<string | null>(localStorage.getItem('edu_user_id'));
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [showLogin, setShowLogin] = useState<boolean>(true);
+  
+  const [usersList, setUsersList] = useState<UserProfile[]>([]);
+  const [homeworkList, setHomeworkList] = useState<Homework[]>([]);
+  const [settings, setSettings] = useState<AppSettings>({});
+  const [gradesList, setGradesList] = useState<Grade[]>([]);
+
+  const [activeTab, setActiveTab] = useState<string>('homework');
 
   useEffect(() => {
     const initAuth = async () => {
@@ -51,7 +83,7 @@ export default function App() {
       const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', localUserId);
       const unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
         if (docSnap.exists()) {
-          setProfile({ id: docSnap.id, ...docSnap.data() });
+          setProfile({ id: docSnap.id, ...docSnap.data() } as UserProfile);
           setShowLogin(false);
         } else {
            localStorage.removeItem('edu_user_id');
@@ -71,24 +103,26 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    const baseCol = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
+    const baseCol = (colName: string) => collection(db, 'artifacts', appId, 'public', 'data', colName);
 
     const unsubUsers = onSnapshot(baseCol('users'), (snap) => {
-      setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() } as UserProfile)));
     }, console.error);
 
     const unsubHomework = onSnapshot(baseCol('homework'), (snap) => {
-      setHomeworkList(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      const hws = snap.docs.map(d => ({ id: d.id, ...d.data() } as Homework));
+      setHomeworkList(hws.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, console.error);
 
     const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'general'), (docSnap) => {
       if (docSnap.exists()) {
-        setSettings(docSnap.data());
+        setSettings(docSnap.data() as AppSettings);
       }
     }, console.error);
 
     const unsubGrades = onSnapshot(baseCol('grades'), (snap) => {
-      setGradesList(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => new Date(b.date) - new Date(a.date)));
+      const grds = snap.docs.map(d => ({ id: d.id, ...d.data() } as Grade));
+      setGradesList(grds.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }, console.error);
 
     return () => {
@@ -98,7 +132,7 @@ export default function App() {
 
   const isAdmin = profile?.role === 'admin';
 
-  const handleLoginSuccess = (userId) => {
+  const handleLoginSuccess = (userId: string) => {
     localStorage.setItem('edu_user_id', userId);
     setLocalUserId(userId);
     setShowLogin(false);
@@ -118,7 +152,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans">
-      {/* Sidebar */}
       <div className="w-full md:w-64 bg-indigo-900 text-white shadow-xl flex flex-col">
         <div className="p-6 flex items-center gap-3 border-b border-indigo-800">
           <BookA className="w-8 h-8 text-indigo-300" />
@@ -154,7 +187,6 @@ export default function App() {
         </nav>
       </div>
 
-      {/* Main Content Area */}
       <div className="flex-1 overflow-auto bg-slate-50">
         <header className="bg-white border-b border-gray-200 px-8 py-5">
           <h2 className="text-2xl font-bold text-gray-800">
@@ -187,7 +219,14 @@ export default function App() {
   );
 }
 
-function NavItem({ icon, label, active, onClick }) {
+interface NavItemProps {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+function NavItem({ icon, label, active, onClick }: NavItemProps) {
   return (
     <button
       onClick={onClick}
@@ -201,11 +240,18 @@ function NavItem({ icon, label, active, onClick }) {
   );
 }
 
-function LoginScreen({ db, appId, user, onLoginSuccess }) {
-  const [loginMode, setLoginMode] = useState('student');
+interface LoginScreenProps {
+  db: Firestore;
+  appId: string;
+  user: User | null;
+  onLoginSuccess: (userId: string) => void;
+}
+
+function LoginScreen({ db, appId, user, onLoginSuccess }: LoginScreenProps) {
+  const [loginMode, setLoginMode] = useState<'student' | 'admin'>('student');
   const [adminPassword, setAdminPassword] = useState('');
   
-  const [students, setStudents] = useState([]);
+  const [students, setStudents] = useState<UserProfile[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [studentPin, setStudentPin] = useState('');
   
@@ -215,13 +261,13 @@ function LoginScreen({ db, appId, user, onLoginSuccess }) {
   useEffect(() => {
     if (!user) return;
     const unsub = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
-      const allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const allUsers = snap.docs.map(d => ({ id: d.id, ...d.data() } as UserProfile));
       setStudents(allUsers.filter(u => u.role === 'student'));
     });
     return () => unsub();
   }, [user, db, appId]);
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) {
         setErrorMsg("시스템 초기화 중입니다. 잠시 후 다시 시도해주세요.");
@@ -250,7 +296,7 @@ function LoginScreen({ db, appId, user, onLoginSuccess }) {
            return;
         }
         const student = students.find(s => s.id === selectedStudentId);
-        if (student.pin !== studentPin) {
+        if (student?.pin !== studentPin) {
            setErrorMsg("비밀번호(PIN)가 틀렸습니다.");
            setIsSubmitting(false);
            return;
@@ -353,7 +399,7 @@ function LoginScreen({ db, appId, user, onLoginSuccess }) {
   );
 }
 
-function StudentHomework({ list }) {
+function StudentHomework({ list }: { list: Homework[] }) {
   return (
     <div className="space-y-4">
       {list.length === 0 ? <p className="text-gray-500 text-center py-8">등록된 숙제가 없습니다.</p> : null}
@@ -368,7 +414,7 @@ function StudentHomework({ list }) {
   );
 }
 
-function VocabBook({ link }) {
+function VocabBook({ link }: { link?: string }) {
   return (
     <div className="bg-white p-10 rounded-2xl shadow-sm border border-gray-100 text-center max-w-2xl mx-auto mt-10">
       <BookA className="w-16 h-16 text-indigo-200 mx-auto mb-4" />
@@ -388,7 +434,7 @@ function VocabBook({ link }) {
   );
 }
 
-function StudentGrades({ list, currentUserId }) {
+function StudentGrades({ list, currentUserId }: { list: Grade[], currentUserId?: string }) {
   const myGrades = list.filter(g => g.studentId === currentUserId);
   return (
     <div className="space-y-4">
@@ -406,12 +452,18 @@ function StudentGrades({ list, currentUserId }) {
   );
 }
 
-function AdminUsers({ users, db, appId }) {
+interface AdminUsersProps {
+  users: UserProfile[];
+  db: Firestore;
+  appId: string;
+}
+
+function AdminUsers({ users, db, appId }: AdminUsersProps) {
   const [name, setName] = useState('');
   const [pin, setPin] = useState('');
   const students = users.filter(u => u.role === 'student');
 
-  const handleAddStudent = async (e) => {
+  const handleAddStudent = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), {
@@ -427,7 +479,7 @@ function AdminUsers({ users, db, appId }) {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id));
     } catch (err) {
@@ -437,7 +489,6 @@ function AdminUsers({ users, db, appId }) {
 
   return (
     <div className="space-y-6">
-      {/* 학생 추가 폼 */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-800">
           <Plus size={20} className="text-indigo-600"/> 신규 학생 등록
@@ -457,7 +508,6 @@ function AdminUsers({ users, db, appId }) {
         </form>
       </div>
 
-      {/* 학생 목록 테이블 */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-gray-100">
@@ -470,7 +520,7 @@ function AdminUsers({ users, db, appId }) {
           </thead>
           <tbody>
             {students.length === 0 ? (
-              <tr><td colSpan="4" className="p-8 text-center text-gray-500">등록된 학생이 없습니다. 먼저 상단에서 학생을 추가해주세요.</td></tr>
+              <tr><td colSpan={4} className="p-8 text-center text-gray-500">등록된 학생이 없습니다. 먼저 상단에서 학생을 추가해주세요.</td></tr>
             ) : null}
             {students.map(u => (
               <tr key={u.id} className="border-b border-gray-50 hover:bg-slate-50">
@@ -491,8 +541,17 @@ function AdminUsers({ users, db, appId }) {
   );
 }
 
-function AdminData({ homework, vocabLink, grades, users, db, appId }) {
-  const [mode, setMode] = useState('homework');
+interface AdminDataProps {
+  homework: Homework[];
+  vocabLink?: string;
+  grades: Grade[];
+  users: UserProfile[];
+  db: Firestore;
+  appId: string;
+}
+
+function AdminData({ homework, vocabLink, grades, users, db, appId }: AdminDataProps) {
+  const [mode, setMode] = useState<'homework' | 'vocab' | 'grades'>('homework');
   
   return (
     <div className="space-y-6">
@@ -510,7 +569,7 @@ function AdminData({ homework, vocabLink, grades, users, db, appId }) {
   );
 }
 
-function VocabLinkForm({ db, appId, currentLink }) {
+function VocabLinkForm({ db, appId, currentLink }: { db: Firestore, appId: string, currentLink?: string }) {
   const [link, setLink] = useState(currentLink || '');
   const [isSaved, setIsSaved] = useState(false);
 
@@ -518,7 +577,7 @@ function VocabLinkForm({ db, appId, currentLink }) {
     setLink(currentLink || '');
   }, [currentLink]);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'general'), {
@@ -559,10 +618,10 @@ function VocabLinkForm({ db, appId, currentLink }) {
   );
 }
 
-function HomeworkForm({ db, appId, list }) {
+function HomeworkForm({ db, appId, list }: { db: Firestore, appId: string, list: Homework[] }) {
   const [formData, setFormData] = useState({ title: '', content: '', dueDate: '' });
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'homework'), {
@@ -572,7 +631,7 @@ function HomeworkForm({ db, appId, list }) {
     } catch (err) { console.error(err); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'homework', id));
   };
 
@@ -605,10 +664,10 @@ function HomeworkForm({ db, appId, list }) {
   );
 }
 
-function GradeForm({ db, appId, students, list }) {
+function GradeForm({ db, appId, students, list }: { db: Firestore, appId: string, students: UserProfile[], list: Grade[] }) {
   const [formData, setFormData] = useState({ studentId: '', examName: '', score: '', date: '' });
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'grades'), formData);
@@ -616,11 +675,11 @@ function GradeForm({ db, appId, students, list }) {
     } catch (err) { console.error(err); }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'grades', id));
   };
 
-  const getStudentName = (id) => students.find(s => s.id === id)?.name || '알 수 없음';
+  const getStudentName = (id: string) => students.find(s => s.id === id)?.name || '알 수 없음';
 
   return (
     <div className="grid md:grid-cols-2 gap-8">
